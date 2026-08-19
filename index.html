@@ -156,14 +156,14 @@
         <div class="row split">
           <div>
             <label for="ticker">銘柄（証券コード・シンボル）</label>
-            <input id="ticker" placeholder="9984.T / SOXX / USDJPY=X" autocomplete="off" spellcheck="false">
+            <input id="ticker" placeholder="9984 / SOXX / ^SOX / USDJPY=X" autocomplete="off" spellcheck="false">
           </div>
           <div>
             <label for="dname">表示名（通知に出る名前）</label>
             <input id="dname" placeholder="ソフトバンクグループ" autocomplete="off">
           </div>
         </div>
-        <div class="hint" style="margin:-6px 0 12px">日本株は末尾 <b>.T</b>（例 9984.T）。編集画面では自動補完しないので、そのまま書いてください。</div>
+        <div class="hint" style="margin:-6px 0 12px">日本株は<b>4桁のコードだけでOK</b>（`9984` → `9984.T` に自動補完）／指数は先頭 <b>^</b>（例 ^SOX・^N225）。保存すると自動で検証され、結果がDiscordに届きます。</div>
 
         <div class="row">
           <label for="cond">条件</label>
@@ -510,10 +510,19 @@ function clearForm(){
   renderList();
 }
 
+/* 4桁の証券コードだけが入力されたら .T を補う(Issueフォームと同じ扱いにする) */
+const JP_CODE_RE = /^[0-9]{3}[0-9A-Za-z]$/;   // 9984 / 130A(2024年以降の英字入りコード)
+function normalizeTicker(raw){
+  const t = raw.trim().toUpperCase();
+  return JP_CODE_RE.test(t) ? t + ".T" : t;
+}
+
 function saveRule(){
   const cond = CONDITIONS[Number($("cond").value)];
-  const ticker = $("ticker").value.trim();
-  if(!ticker){ $("err").textContent = "銘柄を入力してください"; return; }
+  const typed = $("ticker").value.trim();
+  if(!typed){ $("err").textContent = "銘柄を入力してください"; return; }
+  const ticker = normalizeTicker(typed);
+  if(ticker !== typed.toUpperCase()) toast(`${typed} → ${ticker} として登録します`);
 
   const rawValue = $("value").value.trim().replace(/[,\s円ドル%％倍]/g, "");
   const rawPeriod = $("period").value.trim().replace(/[,\s日]/g, "");
