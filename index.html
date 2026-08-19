@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>ウォッチリスト管理 — stock-alert</title>
+<style>
+  :root{
+    --ink:#0E1A1F; --panel:#16262C; --panel-2:#1D323A; --line:#2A444E;
+    --text:#E8EDEA; --muted:#8AA0A6; --signal:#E0A73B;
+    --up:#4FB477; --down:#E06A5A; --live:#E0A73B;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);
+       line-height:1.6;-webkit-font-smoothing:antialiased;padding-bottom:96px}
+  .wrap{max-width:1080px;margin:0 auto;padding:16px 14px 40px}
+  @media(min-width:840px){.wrap{padding:28px 20px 80px}}
+
+  header.masthead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:16px}
+  .masthead h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.02em}
+  .masthead .count{font-family:var(--mono);font-size:12px;color:var(--muted);margin-left:auto}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);
+     font-weight:600;margin:0 0 10px}
+
+  /* 接続バー */
+  .conn{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:12px 14px;margin-bottom:14px}
+  .conn summary{cursor:pointer;font-size:13px;color:var(--muted);list-style:none;
+        display:flex;align-items:center;gap:8px}
+  .conn summary::-webkit-details-marker{display:none}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.ok{background:var(--up)} .dot.err{background:var(--down)}
+  .conn .body{margin-top:12px}
+  .help{font-size:12px;color:var(--muted);margin:8px 0 0}
+  .help a{color:var(--signal)}
+
+  .row{margin-bottom:12px}
+  .row.split{display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:560px){.row.split{grid-template-columns:1fr 1fr}}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  input,select,textarea{width:100%;background:var(--ink);border:1px solid var(--line);
+    border-radius:8px;color:var(--text);font-family:var(--mono);font-size:16px;padding:10px 11px}
+  select{font-family:var(--sans)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--signal);outline-offset:1px;border-color:var(--signal)}
+  input::placeholder{color:#5C7078}
+  .hint{font-size:11px;color:var(--muted);margin-top:5px}
+  .err{color:var(--down);font-size:13px;margin-top:8px;min-height:0}
+
+  .btn{font-family:var(--sans);font-size:14px;font-weight:600;border-radius:8px;
+    padding:11px 15px;cursor:pointer;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--text)}
+  .btn:hover{border-color:var(--muted)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.primary{background:var(--signal);color:#20160A;border-color:var(--signal)}
+  .btn.ghost{background:none}
+  .btn.danger{color:var(--down)}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+
+  /* ルール一覧 */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin-bottom:10px}
+  .card.editing{border-color:var(--signal);background:var(--panel-2)}
+  .card .top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ticker{font-family:var(--mono);font-weight:650;font-size:15px}
+  .name{color:var(--muted);font-size:13px}
+  .badge{font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);
+    border-radius:5px;padding:1px 6px;color:var(--muted);white-space:nowrap}
+  .badge.live{color:var(--live);border-color:var(--live)}
+  .badge.wait{color:var(--up);border-color:#2E5A44}
+  .badge.new{color:var(--signal);border-color:var(--signal)}
+  .sentence{margin-top:7px;font-size:14px}
+  .note{margin-top:4px;font-size:12px;color:var(--muted)}
+  .card .ops{display:flex;gap:8px;margin-top:10px}
+  .card .ops .btn{padding:6px 12px;font-size:13px}
+  .empty{color:var(--muted);font-size:14px;border:1px dashed var(--line);
+    border-radius:10px;padding:22px;text-align:center}
+  .up{color:var(--up)} .down{color:var(--down)} .sig{color:var(--signal)}
+  .mono{font-family:var(--mono)}
+
+  .form{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .grid{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:840px){.grid{grid-template-columns:1.05fr .95fr;align-items:start}}
+
+  details.io{margin-top:18px}
+  details.io summary{cursor:pointer;font-size:13px;color:var(--muted)}
+  textarea{min-height:160px;font-size:12.5px;resize:vertical;margin-top:10px}
+
+  /* 保存バー */
+  .savebar{position:fixed;left:0;right:0;bottom:0;background:rgba(14,26,31,.96);
+    border-top:1px solid var(--line);padding:10px 14px;display:flex;gap:10px;
+    align-items:center;backdrop-filter:blur(6px);z-index:20}
+  .savebar .state{font-size:12px;color:var(--muted);flex:1;min-width:0}
+  .savebar .state b{color:var(--signal)}
+  .toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%) translateY(20px);
+    background:var(--signal);color:#20160A;font-weight:600;font-size:14px;
+    padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;
+    transition:opacity .2s,transform .2s;z-index:30;max-width:90vw;text-align:center}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.bad{background:var(--down);color:#fff}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <h1>ウォッチリスト管理</h1>
+    <span class="count" id="count">—</span>
+  </header>
+
+  <!-- GitHub接続 -->
+  <details class="conn" id="connBox">
+    <summary><span class="dot" id="dot"></span><span id="connLabel">GitHubに接続していません — タップして設定</span></summary>
+    <div class="body">
+      <div class="row split">
+        <div>
+          <label for="repo">リポジトリ</label>
+          <input id="repo" placeholder="owner/repo" autocomplete="off" spellcheck="false">
+        </div>
+        <div>
+          <label for="branch">ブランチ</label>
+          <input id="branch" placeholder="main" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="row">
+        <label for="token">アクセストークン</label>
+        <input id="token" type="password" placeholder="github_pat_..." autocomplete="off" spellcheck="false">
+        <div class="hint">このブラウザだけに保存されます。送信先は api.github.com のみです。</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" id="connect">接続して読み込む</button>
+        <button class="btn ghost danger" id="disconnect">トークンを消す</button>
+      </div>
+      <p class="help">
+        トークンは
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Fine-grained personal access token</a>
+        で作成します。対象リポジトリをこの1つだけに絞り、権限は <b>Contents: Read and write</b> のみ。
+        いつでも設定画面から失効させられます。
+      </p>
+    </div>
+  </details>
+
+  <div class="grid">
+    <section>
+      <h2>登録中のルール</h2>
+      <div id="list"></div>
+    </section>
+
+    <section>
+      <h2 id="formTitle">ルールを追加</h2>
+      <div class="form">
+        <div class="row split">
+          <div>
+            <label for="ticker">銘柄（証券コード・シンボル）</label>
+            <input id="ticker" placeholder="9984.T / SOXX / USDJPY=X" autocomplete="off" spellcheck="false">
+          </div>
+          <div>
+            <label for="dname">表示名（通知に出る名前）</label>
+            <input id="dname" placeholder="ソフトバンクグループ" autocomplete="off">
+          </div>
+        </div>
+        <div class="hint" style="margin:-6px 0 12px">日本株は末尾 <b>.T</b>（例 9984.T）。編集画面では自動補完しないので、そのまま書いてください。</div>
+
+        <div class="row">
+          <label for="cond">条件</label>
+          <select id="cond"></select>
+        </div>
+
+        <div class="row split">
+          <div>
+            <label for="value" id="valueLabel">数値</label>
+            <input id="value" inputmode="decimal" placeholder="5000" autocomplete="off">
+          </div>
+          <div>
+            <label for="period" id="periodLabel">期間（日数）</label>
+            <input id="period" inputmode="numeric" placeholder="5" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="row">
+          <label for="note">メモ（通知に表示・任意）</label>
+          <input id="note" placeholder="支持線割れを監視" autocomplete="off">
+        </div>
+
+        <div class="err" id="err"></div>
+        <div class="actions">
+          <button class="btn primary" id="save">この内容で追加</button>
+          <button class="btn ghost" id="reset">クリア</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <details class="io">
+    <summary>JSONを直接見る・貼り付ける（GitHubに接続しない場合）</summary>
+    <div class="actions" style="margin-top:10px">
+      <button class="btn" id="copy">コピー</button>
+      <button class="btn" id="download">ダウンロード</button>
+      <button class="btn" id="import">貼り付けを取り込む</button>
+    </div>
+    <textarea id="json" spellcheck="false" aria-label="watchlist JSON"></textarea>
+  </details>
+</div>
+
+<div class="savebar">
+  <span class="state" id="syncState">GitHub未接続</span>
+  <button class="btn" id="reload">再読込</button>
+  <button class="btn primary" id="push" disabled>GitHubへ保存</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ * 条件の定義
+ * Issueフォーム(.github/ISSUE_TEMPLATE/add-ticker.yml)と同じ13択。
+ * check_prices.py が解釈できる形のルールに変換する。
+ * ------------------------------------------------------------------ */
+const CONDITIONS = [
+  {label:"価格 — 指定した価格を下回ったら",              type:"price",        updown:"down", value:"price"},
+  {label:"価格 — 指定した価格を上回ったら",              type:"price",        updown:"up",   value:"price"},
+  {label:"％変動 — 前日比で ○％ 下落したら",             type:"pct_change",   updown:"down", window:1, value:"pct"},
+  {label:"％変動 — 前日比で ○％ 上昇したら",             type:"pct_change",   updown:"up",   window:1, value:"pct"},
+  {label:"％変動 — 指定した日数で ○％ 下落したら",        type:"pct_change",   updown:"down", value:"pct", period:"window"},
+  {label:"％変動 — 指定した日数で ○％ 上昇したら",        type:"pct_change",   updown:"up",   value:"pct", period:"window"},
+  {label:"％変動 — 指定した日数で ○％ 上下どちらかに動いたら", type:"pct_change", updown:"both", value:"pct", period:"window"},
+  {label:"下落率 — 52週高値から ○％ 下落したら",          type:"drawdown",                    value:"pct"},
+  {label:"移動平均 — 50日線を下抜けしたら",              type:"ma_cross",     updown:"down", ma:50},
+  {label:"移動平均 — 50日線を上抜けしたら",              type:"ma_cross",     updown:"up",   ma:50},
+  {label:"移動平均 — 200日線を下抜けしたら",             type:"ma_cross",     updown:"down", ma:200},
+  {label:"移動平均 — 200日線を上抜けしたら",             type:"ma_cross",     updown:"up",   ma:200},
+  {label:"出来高 — 平均の ○倍 に急増したら",             type:"volume_surge",                value:"mult", period:"lookback"},
+];
+const VALUE_LABEL = {price:"数値（価格）", pct:"数値（％）", mult:"数値（倍率・既定 3）"};
+const PERIOD_LABEL = {window:"期間（何日での変動か・既定 1）", lookback:"平均を取る日数（既定 20）"};
+
+/* ルール ← フォーム */
+function toRule(cond, ticker, name, value, period, note){
+  const r = {ticker, type:cond.type};
+  if(name) r.name = name;
+  if(cond.type === "price"){
+    r.condition = cond.updown === "up" ? "above" : "below";
+    r.threshold = value;
+  } else if(cond.type === "pct_change"){
+    r.window_days = cond.window || period || 1;
+    r.direction = cond.updown;
+    r.threshold = Math.abs(value);
+  } else if(cond.type === "drawdown"){
+    r.threshold = Math.abs(value);
+  } else if(cond.type === "ma_cross"){
+    r.ma_period = cond.ma;
+    r.direction = cond.updown === "up" ? "above" : "below";
+  } else if(cond.type === "volume_surge"){
+    r.multiplier = value == null ? 3 : value;
+    r.lookback_days = period || 20;
+  }
+  if(note) r.note = note;
+  return r;
+}
+
+/* フォーム ← ルール（編集時に選択肢を復元する） */
+function condIndex(rule){
+  const t = rule.type || "price";
+  const up = t === "price"    ? (rule.condition === "above" ? "up" : "down")
+           : t === "ma_cross" ? (rule.direction === "above" ? "up" : "down")
+           : (rule.direction || "both");
+  const w = Number(rule.window_days || 1);
+  let relaxed = -1, byType = -1;
+  for(let i = 0; i < CONDITIONS.length; i++){
+    const c = CONDITIONS[i];
+    if(c.type !== t) continue;
+    if(byType < 0) byType = i;
+    if(t === "drawdown" || t === "volume_surge") return i;
+    if(c.updown !== up) continue;
+    if(relaxed < 0) relaxed = i;
+    if(t === "ma_cross"){ if(c.ma === Number(rule.ma_period || 50)) return i; continue; }
+    if(t === "pct_change"){
+      if(c.window === 1 && w === 1) return i;
+      if(!c.window && w !== 1) return i;
+      continue;
+    }
+    return i;   // price
+  }
+  return relaxed >= 0 ? relaxed : (byType >= 0 ? byType : 0);
+}
+
+/* 1行の日本語説明（check_prices.py の describe_rule と同じ内容） */
+function describe(w){
+  const t = w.type || "price";
+  if(t === "price"){
+    const side = w.condition === "above" ? "上回ったら" : "下回ったら";
+    const cls  = w.condition === "above" ? "up" : "down";
+    return `価格が <b>${fmt(w.threshold)}</b> を<span class="${cls}">${side}</span>通知`;
+  }
+  if(t === "pct_change"){
+    const win = Number(w.window_days || 1);
+    const span = win === 1 ? "前日比" : `${win}日で`;
+    const dir = w.direction === "up" ? '<span class="up">上昇</span>'
+              : w.direction === "down" ? '<span class="down">下落</span>' : "変動";
+    return `${span} <b>${fmt(Math.abs(w.threshold))}%</b> 以上${dir}したら通知`;
+  }
+  if(t === "drawdown")
+    return `52週高値から <span class="down"><b>${fmt(Math.abs(w.threshold))}%</b> 下落</span>したら通知`;
+  if(t === "ma_cross"){
+    const above = w.direction === "above";
+    return `<b>${Number(w.ma_period || 50)}日移動平均線</b>を<span class="${above?"up":"down"}">${above?"上抜け":"下抜け"}</span>したら通知`;
+  }
+  if(t === "volume_surge")
+    return `出来高が直近${Number(w.lookback_days || 20)}日平均の <span class="sig"><b>${fmt(w.multiplier)}倍</b></span> を超えたら通知`;
+  return t;
+}
+
+/* check_prices.py の alert_key と同じ文字列（state.json の照合用） */
+const KEY_FIELDS = ["condition","threshold","window_days","direction","ma_period","multiplier","lookback_days"];
+function alertKey(w){
+  const parts = [w.ticker, w.type || "price"];
+  for(const k of KEY_FIELDS) if(k in w) parts.push(`${k}=${w[k]}`);
+  return parts.join("|");
+}
+
+/* ------------------------------------------------------------------ *
+ * 状態
+ * ------------------------------------------------------------------ */
+const LS = {token:"gh_token", repo:"gh_repo", branch:"gh_branch", draft:"watchlist_draft"};
+let rules = [];
+let state = {};          // state.json（成立中かどうか）
+let sha = null;          // watchlist.json の sha（保存時の競合検知に使う）
+let editIndex = -1;
+let dirty = false;
+let connected = false;
+
+const $ = id => document.getElementById(id);
+const fmt = v => { const n = Number(v); return isNaN(n) ? v : n.toLocaleString("ja-JP"); };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function toast(msg, bad){
+  const t = $("toast"); t.textContent = msg;
+  t.classList.toggle("bad", !!bad); t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+/* ------------------------------------------------------------------ *
+ * GitHub API
+ * ------------------------------------------------------------------ */
+const cfg = () => ({
+  token: ($("token").value || localStorage.getItem(LS.token) || "").trim(),
+  repo:  ($("repo").value  || localStorage.getItem(LS.repo)  || "").trim(),
+  branch:($("branch").value|| localStorage.getItem(LS.branch)|| "main").trim(),
+});
+
+function b64encode(str){
+  const bytes = new TextEncoder().encode(str);
+  let bin = ""; bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+function b64decode(b64){
+  const bin = atob(b64.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+async function api(path, options){
+  const c = cfg();
+  // 読み取りは ?ref=ブランチ を付ける。書き込み(PUT)では付けてはいけない
+  const url = `https://api.github.com/repos/${c.repo}/contents/${path}`
+            + (options && options.method ? "" : `?ref=${encodeURIComponent(c.branch)}`);
+  const res = await fetch(url, {
+    cache: "no-store",
+    ...options,
+    headers: {
+      "Authorization": `Bearer ${c.token}`,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(options && options.body ? {"Content-Type":"application/json"} : {}),
+    },
+  });
+  if(!res.ok){
+    let detail = "";
+    try { detail = (await res.json()).message || ""; } catch(e){}
+    throw new Error(`${res.status} ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+async function pull(){
+  const c = cfg();
+  if(!c.token || !c.repo) throw new Error("リポジトリとトークンを入力してください");
+  const wl = await api("watchlist.json");
+  rules = JSON.parse(b64decode(wl.content));
+  if(!Array.isArray(rules)) throw new Error("watchlist.json が配列ではありません");
+  sha = wl.sha;
+  try {
+    const st = await api("state.json");
+    state = JSON.parse(b64decode(st.content));
+  } catch(e){ state = {}; }        // state.json が無くても致命的ではない
+  connected = true; dirty = false;
+  localStorage.setItem(LS.token, c.token);
+  localStorage.setItem(LS.repo, c.repo);
+  localStorage.setItem(LS.branch, c.branch);
+}
+
+async function push(){
+  const c = cfg();
+  const body = JSON.stringify({
+    message: "chore: update watchlist from editor",
+    content: b64encode(JSON.stringify(rules, null, 2) + "\n"),
+    sha, branch: c.branch,
+  });
+  const res = await api("watchlist.json", {method:"PUT", body});
+  sha = res.content.sha; dirty = false;
+}
+
+/* ------------------------------------------------------------------ *
+ * 描画
+ * ------------------------------------------------------------------ */
+function renderConn(){
+  const c = cfg();
+  const dot = $("dot");
+  dot.className = "dot" + (connected ? " ok" : "");
+  $("connLabel").textContent = connected
+    ? `${c.repo} @ ${c.branch} に接続中`
+    : "GitHubに接続していません — タップして設定";
+  $("push").disabled = !connected;
+  $("syncState").innerHTML = !connected ? "GitHub未接続（下のJSON欄で手動運用もできます）"
+    : dirty ? "<b>未保存の変更があります</b>" : "GitHubと同期済み";
+}
+
+function renderCond(){
+  const sel = $("cond");
+  if(sel.options.length === 0){
+    CONDITIONS.forEach((c, i) => sel.add(new Option(c.label, String(i))));
+  }
+  const c = CONDITIONS[Number(sel.value || 0)];
+  const vWrap = $("value").parentElement, pWrap = $("period").parentElement;
+  vWrap.style.display = c.value ? "" : "none";
+  pWrap.style.display = c.period ? "" : "none";
+  if(c.value)  $("valueLabel").textContent  = VALUE_LABEL[c.value];
+  if(c.period) $("periodLabel").textContent = PERIOD_LABEL[c.period];
+}
+
+function renderList(){
+  const list = $("list");
+  $("count").textContent = `${rules.length} 件`;
+  if(rules.length === 0){
+    list.innerHTML = `<div class="empty">ルールがありません。右のフォームから追加してください。</div>`;
+    return;
+  }
+  list.innerHTML = "";
+  rules.forEach((w, i) => {
+    const key = alertKey(w);
+    const st = key in state ? (state[key] ? "live" : "wait") : "new";
+    const stText = {live:"成立中", wait:"待機中", new:"未チェック"}[st];
+    const card = document.createElement("div");
+    card.className = "card" + (i === editIndex ? " editing" : "");
+    card.innerHTML = `
+      <div class="top">
+        <span class="ticker">${esc(w.ticker)}</span>
+        ${w.name ? `<span class="name">${esc(w.name)}</span>` : ""}
+        <span class="badge ${st}">${stText}</span>
+      </div>
+      <div class="sentence">${describe(w)}</div>
+      ${w.note ? `<div class="note">▸ ${esc(w.note)}</div>` : ""}
+      <div class="ops">
+        <button class="btn" data-edit="${i}">編集</button>
+        <button class="btn ghost danger" data-del="${i}">削除</button>
+      </div>`;
+    list.appendChild(card);
+  });
+  list.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => startEdit(Number(b.dataset.edit)));
+  list.querySelectorAll("[data-del]").forEach(b => b.onclick = () => removeRule(Number(b.dataset.del)));
+}
+
+function renderJson(){ $("json").value = JSON.stringify(rules, null, 2); }
+function renderAll(){ renderConn(); renderList(); renderJson(); }
+
+/* ------------------------------------------------------------------ *
+ * フォーム操作
+ * ------------------------------------------------------------------ */
+function startEdit(i){
+  const w = rules[i];
+  editIndex = i;
+  $("ticker").value = w.ticker || "";
+  $("dname").value = w.name || "";
+  $("note").value = w.note || "";
+  $("cond").value = String(condIndex(w));
+  renderCond();
+  const c = CONDITIONS[condIndex(w)];
+  $("value").value = c.value === "mult" ? (w.multiplier ?? "")
+                   : c.value ? (w.threshold ?? "") : "";
+  $("period").value = c.period === "window" ? (w.window_days ?? "")
+                    : c.period === "lookback" ? (w.lookback_days ?? "") : "";
+  $("formTitle").textContent = `ルールを編集（${i + 1}件目）`;
+  $("save").textContent = "この内容で更新";
+  $("err").textContent = "";
+  renderList();
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+function clearForm(){
+  editIndex = -1;
+  $("ticker").value = $("dname").value = $("note").value = $("value").value = $("period").value = "";
+  $("cond").value = "0"; renderCond();
+  $("formTitle").textContent = "ルールを追加";
+  $("save").textContent = "この内容で追加";
+  $("err").textContent = "";
+  renderList();
+}
+
+function saveRule(){
+  const cond = CONDITIONS[Number($("cond").value)];
+  const ticker = $("ticker").value.trim();
+  if(!ticker){ $("err").textContent = "銘柄を入力してください"; return; }
+
+  const rawValue = $("value").value.trim().replace(/[,\s円ドル%％倍]/g, "");
+  const rawPeriod = $("period").value.trim().replace(/[,\s日]/g, "");
+  let value = null, period = null;
+  if(rawValue !== ""){
+    value = Number(rawValue);
+    if(isNaN(value)){ $("err").textContent = "数値を正しく入力してください"; return; }
+  }
+  if(rawPeriod !== ""){
+    period = Math.round(Number(rawPeriod));
+    if(isNaN(period)){ $("err").textContent = "期間を数値で入力してください"; return; }
+  }
+  if(cond.value && cond.value !== "mult" && value == null){
+    $("err").textContent = "この条件では数値が必要です"; return;
+  }
+
+  const rule = toRule(cond, ticker, $("dname").value.trim(), value, period, $("note").value.trim());
+  const key = alertKey(rule);
+  const dup = rules.findIndex((w, i) => i !== editIndex && alertKey(w) === key);
+  if(dup >= 0){ $("err").textContent = `同じ条件がすでに ${dup + 1}件目 にあります`; return; }
+
+  if(editIndex >= 0) rules[editIndex] = rule; else rules.push(rule);
+  dirty = true;
+  const msg = editIndex >= 0 ? "更新しました" : "追加しました";
+  clearForm(); renderAll(); saveDraft();
+  toast(connected ? `${msg}（GitHubへ保存を押すと反映）` : msg);
+}
+
+function removeRule(i){
+  if(!confirm(`${i + 1}件目「${rules[i].ticker}」のルールを削除します。よろしいですか？`)) return;
+  rules.splice(i, 1);
+  if(editIndex === i) clearForm();
+  else if(editIndex > i) editIndex--;
+  dirty = true;
+  renderAll(); saveDraft();
+  toast(connected ? "削除しました（GitHubへ保存を押すと反映）" : "削除しました");
+}
+
+/* 未接続時のみ、下書きをブラウザに残す */
+function saveDraft(){ if(!connected) try{ localStorage.setItem(LS.draft, JSON.stringify(rules)); }catch(e){} }
+
+/* ------------------------------------------------------------------ *
+ * 起動と操作の割り当て
+ * ------------------------------------------------------------------ */
+$("cond").onchange = renderCond;
+$("save").onclick = saveRule;
+$("reset").onclick = clearForm;
+
+$("connect").onclick = async () => {
+  const btn = $("connect"); btn.disabled = true; btn.textContent = "読み込み中…";
+  try {
+    await pull(); clearForm(); renderAll();
+    $("connBox").open = false;
+    toast(`読み込みました（${rules.length}件）`);
+  } catch(e){
+    connected = false; renderConn();
+    $("dot").className = "dot err";
+    toast("読み込み失敗: " + e.message, true);
+  } finally { btn.disabled = false; btn.textContent = "接続して読み込む"; }
+};
+
+$("disconnect").onclick = () => {
+  localStorage.removeItem(LS.token);
+  $("token").value = ""; connected = false; sha = null;
+  renderConn(); toast("トークンを削除しました");
+};
+
+$("reload").onclick = async () => {
+  if(!connected){ $("connBox").open = true; return; }
+  if(dirty && !confirm("未保存の変更があります。破棄して読み直しますか？")) return;
+  try { await pull(); clearForm(); renderAll(); toast("読み直しました"); }
+  catch(e){ toast("読み込み失敗: " + e.message, true); }
+};
+
+$("push").onclick = async () => {
+  const btn = $("push"); btn.disabled = true; btn.textContent = "保存中…";
+  try { await push(); renderAll(); toast("GitHubへ保存しました"); }
+  catch(e){
+    const conflict = /409/.test(e.message);
+    toast(conflict ? "他の変更と競合しました。再読込してからやり直してください" : "保存失敗: " + e.message, true);
+  } finally { btn.disabled = false; btn.textContent = "GitHubへ保存"; }
+};
+
+$("copy").onclick = () => {
+  const ta = $("json"); ta.select();
+  navigator.clipboard.writeText(ta.value).then(() => toast("コピーしました")).catch(() => toast("コピーしました"));
+};
+$("download").onclick = () => {
+  const blob = new Blob([JSON.stringify(rules, null, 2) + "\n"], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "watchlist.json"; a.click();
+  URL.revokeObjectURL(a.href); toast("保存しました");
+};
+$("import").onclick = () => {
+  try {
+    const data = JSON.parse($("json").value);
+    if(!Array.isArray(data)) throw new Error("配列ではありません");
+    rules = data; dirty = true; clearForm(); renderAll(); saveDraft();
+    toast("取り込みました");
+  } catch(e){ toast("取り込み失敗: " + e.message, true); }
+};
+
+window.addEventListener("beforeunload", e => { if(dirty){ e.preventDefault(); e.returnValue = ""; } });
+
+(function init(){
+  $("repo").value = localStorage.getItem(LS.repo) || "";
+  $("branch").value = localStorage.getItem(LS.branch) || "main";
+  $("token").value = localStorage.getItem(LS.token) || "";
+  renderCond();
+  try { rules = JSON.parse(localStorage.getItem(LS.draft) || "[]"); } catch(e){ rules = []; }
+  renderAll();
+  if($("token").value && $("repo").value) $("connect").click();
+  else $("connBox").open = true;
+})();
+</script>
+</body>
+</html>
